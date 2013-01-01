@@ -8,7 +8,10 @@ import java.io.RandomAccessFile;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.jar.JarFile;
 import org.bukkit.Server;
+import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.InvalidDescriptionException;
 import org.bukkit.plugin.InvalidPluginException;
 import org.bukkit.plugin.Plugin;
@@ -173,8 +176,15 @@ public class Loader {
     public static boolean loadBukkitProjectPlugin(Server server, String projectName, String buildString) 
             throws MalformedURLException, IOException, InvalidPluginException, 
                    InvalidDescriptionException {
-        File            file;
-        Plugin          plugin;
+        File                    file;
+        Plugin                  plugin;
+        JarFile                 jf;
+        YamlConfiguration       cfg;
+        String                  pluginName;
+        
+        if (buildString.length() < 1) {
+            buildString = "latest";
+        }
         
         file = new File(cacheDir, String.format("%s-%s.jar", projectName, buildString));
         
@@ -191,9 +201,54 @@ public class Loader {
         
         // load the JAR into memory
         // pluginManager.loadPlugin
-        plugin = server.getPluginManager().loadPlugin(file);
+        jf = new JarFile(file);
+        
+        cfg = new YamlConfiguration();
+        try {
+            cfg.load(jf.getInputStream(jf.getEntry("plugin.yml")));
+        } catch (InvalidConfigurationException ex) {
+            server.getLogger().info(String.format("[BAD CONFIG.YML] %s-%s", projectName, buildString));
+            return false;
+        }
+        
+        pluginName = cfg.getString("name");
+        
         server.getLogger().info(String.format("[LOADED] %s-%s", projectName, buildString));
+
+        for (Plugin p : server.getPluginManager().getPlugins()) {
+            if (p.getName().equals(pluginName)) {
+                /* problem, plugin has already been loaded and enabled */
+                server.getLogger().info(String.format("[ALREADY LOADED] %s-%s", projectName, buildString));                
+                return false;
+            }
+        }
+        
+        plugin = server.getPluginManager().loadPlugin(file);
         server.getPluginManager().enablePlugin(plugin);
         return true;
     }
+    
+    public static byte[] loadResource(String path) throws IOException {
+        InputStream             ins;
+        byte[]                  sbuf;
+        ByteArrayOutputStream   buf;
+        int                     count;
+        
+        ins = Loader.class.getClassLoader().getResourceAsStream(path);
+        
+        if (ins == null) {
+            throw new IOException(String.format("I/O exception trying to read %s.", path));
+        }
+        
+        buf = new ByteArrayOutputStream();
+        sbuf = new byte[1024];
+        
+        while ((count = ins.read(sbuf)) > 0) {
+            buf.write(sbuf, 0, count);
+        }
+        
+        ins.close();
+        
+        return buf.toByteArray();
+    }    
 }
